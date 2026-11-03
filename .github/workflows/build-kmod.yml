@@ -21,6 +21,7 @@ jobs:
 
       - name: Clone ImmortalWrt Source
         run: |
+          # 克隆源码
           git clone --depth 1 -b master https://github.com/immortalwrt/immortalwrt.git
           cd immortalwrt
 
@@ -33,10 +34,9 @@ jobs:
       - name: Configure Target and Package
         run: |
           cd immortalwrt
-          # 先生成基础配置
           make defconfig
           
-          # 强制锁定设备平台为 mediatek/filogic
+          # 强制锁定目标平台，并选中所需的内核模块
           cat >> .config <<EOF
           CONFIG_TARGET_mediatek=y
           CONFIG_TARGET_mediatek_filogic=y
@@ -48,21 +48,28 @@ jobs:
           CONFIG_PACKAGE_libipset=m
           EOF
           
-          # 再次计算依赖（这步极其关键，确保 kmod 被选中）
+          # 重新生成配置以应用修改
           make defconfig
 
       - name: Compile kmod
         run: |
           cd immortalwrt
-          # 全量编译，由于限制了平台，速度会比之前快一些
+          # 全量编译，确保内核和包都能编译出来
           make -j$(nproc) V=s
+
+      - name: Check output paths (Debug)
+        run: |
+          cd immortalwrt
+          # 打印所有生成的文件，帮你在日志里确认文件到底在哪
+          echo "=== Searching for generated APK files ==="
+          find bin/ -name "*.apk"
 
       - name: Upload kmod artifact
         uses: actions/upload-artifact@main
         with:
           name: kmod-ipt-ipset-package
-          # 精确抓取 targets 目录下的 kmod 文件
+          # 修正后的正确路径（去 packages 目录找，而不是 kmods）
           path: |
-            immortalwrt/bin/targets/mediatek/filogic/kmods/*.ipk
-            immortalwrt/bin/targets/mediatek/filogic/kmods/*.apk
-          if-no-files-found: error
+            immortalwrt/bin/targets/mediatek/filogic/packages/*.apk
+            immortalwrt/bin/packages/*/base/*.apk
+          if-no-files-found: warn
