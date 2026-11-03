@@ -2,7 +2,7 @@ name: Build kmod-ipt-ipset
 
 on:
   workflow_dispatch: 
-  push: # 添加了 push 触发，这样你提交修改后会自动运行一次
+  push: 
 
 jobs:
   build:
@@ -21,36 +21,48 @@ jobs:
 
       - name: Clone ImmortalWrt Source
         run: |
-          # 拉取 ImmortalWrt 主分支源码（最接近 snapshot 版本）
           git clone --depth 1 -b master https://github.com/immortalwrt/immortalwrt.git
           cd immortalwrt
 
-      - name: Update feeds & Install packages
+      - name: Update feeds
         run: |
           cd immortalwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      - name: Load custom config
+      - name: Configure Target and Package
         run: |
           cd immortalwrt
+          # 先生成基础配置
           make defconfig
-          # 强制选中你要的 kmod 包
-          echo "CONFIG_PACKAGE_kmod-ipt-ipset=m" >> .config
+          
+          # 强制锁定设备平台为 mediatek/filogic
+          cat >> .config <<EOF
+          CONFIG_TARGET_mediatek=y
+          CONFIG_TARGET_mediatek_filogic=y
+          CONFIG_TARGET_mediatek_filogic_DEVICE_generic=y
+          CONFIG_PACKAGE_kmod-ipt-ipset=m
+          CONFIG_PACKAGE_ipset=m
+          CONFIG_PACKAGE_kmod-ipt-core=m
+          CONFIG_PACKAGE_kmod-nfnetlink=m
+          CONFIG_PACKAGE_libipset=m
+          EOF
+          
+          # 再次计算依赖（这步极其关键，确保 kmod 被选中）
           make defconfig
 
       - name: Compile kmod
         run: |
           cd immortalwrt
-          # 开始编译，使用多线程加速
+          # 全量编译，由于限制了平台，速度会比之前快一些
           make -j$(nproc) V=s
 
       - name: Upload kmod artifact
         uses: actions/upload-artifact@main
         with:
           name: kmod-ipt-ipset-package
-          # 修复了这里的语法错误，使用多行通配符
+          # 精确抓取 targets 目录下的 kmod 文件
           path: |
-            immortalwrt/bin/packages/*/base/*.ipk
-            immortalwrt/bin/packages/*/base/*.apk
-          if-no-files-found: warn
+            immortalwrt/bin/targets/mediatek/filogic/kmods/*.ipk
+            immortalwrt/bin/targets/mediatek/filogic/kmods/*.apk
+          if-no-files-found: error
